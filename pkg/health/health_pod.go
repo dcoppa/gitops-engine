@@ -27,12 +27,6 @@ func getPodHealth(obj *unstructured.Unstructured) (*HealthStatus, error) {
 }
 
 func getCorev1PodHealth(pod *corev1.Pod) (*HealthStatus, error) {
-	// This logic cannot be applied when the pod.Spec.RestartPolicy is: corev1.RestartPolicyOnFailure,
-	// corev1.RestartPolicyNever, otherwise it breaks the resource hook logic.
-	// The issue is, if we mark a pod with ImagePullBackOff as Degraded, and the pod is used as a resource hook,
-	// then we will prematurely fail the PreSync/PostSync hook. Meanwhile, when that error condition is resolved
-	// (e.g. the image is available), the resource hook pod will unexpectedly be executed even though the sync has
-	// completed.
 	var status HealthStatusCode
 	var messages []string
 
@@ -92,7 +86,7 @@ func getCorev1PodHealth(pod *corev1.Pod) (*HealthStatus, error) {
 		return &HealthStatus{Status: HealthStatusDegraded, Message: ""}, nil
 	case corev1.PodRunning:
 		switch pod.Spec.RestartPolicy {
-		case corev1.RestartPolicyAlways:
+		case corev1.RestartPolicyAlways, corev1.RestartPolicyOnFailure, corev1.RestartPolicyNever:
 			// if pod is ready, it is automatically healthy
 			if podutils.IsPodReady(pod) {
 				return &HealthStatus{
@@ -110,14 +104,6 @@ func getCorev1PodHealth(pod *corev1.Pod) (*HealthStatus, error) {
 				}
 			}
 			// otherwise we are progressing towards a ready state
-			return &HealthStatus{
-				Status:  HealthStatusProgressing,
-				Message: pod.Status.Message,
-			}, nil
-		case corev1.RestartPolicyOnFailure, corev1.RestartPolicyNever:
-			// pods set with a restart policy of OnFailure or Never, have a finite life.
-			// These pods are typically resource hooks. Thus, we consider these as Progressing
-			// instead of healthy.
 			return &HealthStatus{
 				Status:  HealthStatusProgressing,
 				Message: pod.Status.Message,
